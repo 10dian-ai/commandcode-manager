@@ -10,6 +10,8 @@ export default defineEventHandler(async event => {
   await subscriber.subscribe(UPDATE_CHANNEL)
   const heartbeat = setInterval(() => push('ping', '{}'), 20000)
   stream.onClosed(() => { closed = true; clearInterval(heartbeat); subscriber.disconnect() })
-  await stream.push({ event: 'ready', data: '{}' })
-  return stream.send()
+  // Start consuming the TransformStream before writing: awaiting push first deadlocks on backpressure.
+  const response = stream.send()
+  push('ready', '{}')
+  return response
 })
