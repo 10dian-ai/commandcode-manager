@@ -1,0 +1,50 @@
+{
+  "name": "commandcode-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.17.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1",
+    "dev:worker": "tsx watch worker/index.ts",
+    "build": "nuxt build && node scripts/build-worker.mjs",
+    "start": "node --env-file-if-exists=.env .output/server/index.mjs",
+    "worker": "node .worker/index.mjs",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "setup": "node scripts/setup.mjs",
+    "typecheck": "nuxt typecheck && tsc -p tsconfig.worker.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "bullmq": "5.58.5",
+    "dotenv": "17.4.2",
+    "h3": "1.15.4",
+    "ioredis": "5.8.2",
+    "postgres": "3.4.9",
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@iconify-json/ph": "1.2.2",
+    "@nuxt/ui": "4.11.1",
+    "@types/node": "22.20.2",
+    "esbuild": "0.28.2",
+    "nuxt": "4.5.2",
+    "tsx": "4.20.5",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
+    "vue": "3.5.42",
+    "vue-tsc": "3.3.11"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.27.7": true,
+    "esbuild@0.25.12": true,
+    "vue-demi@0.14.10": true,
+    "msgpackr-extract@3.0.4": true
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+*.log
+*.zip
+.omo/
+.agents/
+AGENTS.md
+stdout.txt
+stderr.txt
+captured-requests/
+

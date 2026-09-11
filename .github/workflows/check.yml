@@ -1,0 +1,38 @@
+name: Check
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ccm
+          POSTGRES_DB: commandcode
+          POSTGRES_PASSWORD: integration-test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ccm -d commandcode"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      DATABASE_URL: postgres://ccm:integration-test-only@localhost:5432/commandcode
+      TEST_DATABASE_URL: postgres://ccm:integration-test-only@localhost:5432/commandcode
+      REDIS_URL: redis://localhost:6379/0
+      TEST_REDIS_URL: redis://localhost:6379/15
+      ADMIN_PASSWORD: integration-test-only
+      APP_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      APP_URL: http://localhost:3000
+      KERNEL_URL: http://localhost:3050
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run check

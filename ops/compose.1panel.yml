@@ -1,0 +1,10 @@
+services:
+  app:
+    networks:
+      default:
+      panel:
+        aliases: [ccm-app]
+networks:
+  panel:
+    external: true
+    name: ${PANEL_NETWORK:?Set the existing OpenResty network name}

@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/MAXeaglet/commandcode-proxy",
+  "commit": "621730578ff95b56a1df77e3dda3396cdfd2c585",
+  "branch": "master",
+  "reviewedOn": "2026-09-11",
+  "archiveSha256": "D29C038FF3578F710ACA1A9B9B7D3CF2DCDADBC34686D5F5D78DFD8D3B49F2B1",
+  "status": "unmodified upstream snapshot used by scripts/build-core.mjs"
+}

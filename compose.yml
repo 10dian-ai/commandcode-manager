@@ -1,0 +1,72 @@
+name: commandcode-manager
+x-app-env: &app-env
+  NODE_ENV: production
+  APP_URL: ${APP_URL:-http://localhost:3000}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run npm run setup first}
+  APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?Run npm run setup first}
+  DATABASE_URL: postgres://ccm:${POSTGRES_PASSWORD}@postgres:5432/commandcode
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  KERNEL_URL: http://kernel:3050
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ccm
+      POSTGRES_DB: commandcode
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run npm run setup first}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ccm -d commandcode"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run npm run setup first}
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  kernel:
+    build: { context: ., dockerfile: core/Dockerfile }
+    image: commandcode-manager-kernel:0.1.0
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+  app:
+    build: { context: ., dockerfile: Dockerfile }
+    image: commandcode-manager:0.1.0
+    restart: unless-stopped
+    environment: *app-env
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kernel: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      start_period: 30s
+      retries: 5
+  worker:
+    build: { context: ., dockerfile: Dockerfile }
+    image: commandcode-manager:0.1.0
+    restart: unless-stopped
+    environment: *app-env
+    command: ["node", ".worker/index.mjs"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kernel: { condition: service_healthy }
+volumes:
+  postgres-data:
+  redis-data:
