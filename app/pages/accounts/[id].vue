@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AccountView, UsageWindow } from '#shared/types'
+import type { AccountView } from '#shared/types'
 type AccountDetail = AccountView & { observedModels?: { modelId: string; status: string; reason: string | null; cooldownUntil: string | null; lastCheckedAt: string }[] }
 useHead({ title: '账号详情 · Command Code Manager' })
 const route = useRoute()
@@ -7,36 +7,38 @@ const api = useRequestFetch()
 const accountId = computed(() => String(route.params.id))
 const { data, pending, error, refresh } = await useFetch<AccountDetail>(() => '/api/accounts/' + encodeURIComponent(accountId.value))
 useLiveRefresh(refresh)
-const form = reactive({ label: '', groupName: '', note: '', enabled: true, maxConcurrency: 2 })
-let initializedFor = ''
-function fillForm(account: AccountDetail) { Object.assign(form, { label: account.label, groupName: account.groupName, note: account.note, enabled: account.enabled, maxConcurrency: account.maxConcurrency }); initializedFor = account.id }
-watch(data, account => { if (account && initializedFor !== account.id) fillForm(account) }, { immediate: true })
-const dirty = computed(() => !!data.value && (Object.keys(form) as (keyof typeof form)[]).some(key => form[key] !== data.value?.[key]))
+function accountFields(account: AccountDetail) {
+  return { label: account.label, groupName: account.groupName, note: account.note, enabled: account.enabled, maxConcurrency: account.maxConcurrency }
+}
+const { form, dirty, reset } = useEditableFields(() => data.value ? accountFields(data.value) : null, () => data.value?.id)
 const { busy, run } = useApiAction()
 async function save() {
-  const result = await run(() => api<AccountDetail>('/api/accounts/' + accountId.value, { method: 'PATCH', body: { ...form } }), '账号设置已保存')
-  if (result.ok) { fillForm(result.value); await refresh() }
+  if (!form.value) return
+  const { enabled, ...fields } = form.value
+  const body = enabled === data.value?.enabled ? fields : { ...fields, enabled }
+  const result = await run(() => api<AccountDetail>('/api/accounts/' + accountId.value, { method: 'PATCH', body }), '账号设置已保存')
+  if (result.ok) { reset(accountFields(result.value)); await refresh() }
 }
 async function sync() { await run(() => api('/api/accounts/actions', { method: 'POST', body: { ids: [accountId.value], action: 'refresh' } }), '已提交刷新任务，完成后会自动更新') }
-const windows = computed(() => [
-  { label: '5 小时窗口', value: data.value?.snapshot?.windowLimits?.fiveHour },
-  { label: '每周窗口', value: data.value?.snapshot?.windowLimits?.weekly },
-])
-function percent(window: UsageWindow) { return window.cap > 0 ? Math.max(0, Math.min(100, window.used / window.cap * 100)) : 0 }
+async function cancelQuotaResume() {
+  const result = await run(() => api<AccountDetail>('/api/accounts/' + accountId.value, { method: 'PATCH', body: { enabled: false } }), '已取消自动恢复，账号保持停用')
+  if (result.ok) await refresh()
+}
 </script>
 <template>
   <NuxtLink to="/accounts" class="back-link"><UIcon name="i-ph-arrow-left-bold" />返回账号列表</NuxtLink>
   <AppPageHeader :title="data?.label || data?.email || '账号详情'" description="额度与窗口限制直接展示上游返回的数据。"><button class="button" :disabled="pending" @click="refresh()"><UIcon name="i-ph-arrow-clockwise-bold" :class="{ spinning: pending }" />更新详情</button><button class="button primary" :disabled="busy || !data" @click="sync"><UIcon name="i-ph-arrows-clockwise-bold" />刷新上游数据</button></AppPageHeader>
   <AppState v-if="error" :error="error" @retry="refresh()" /><AppState v-else-if="!data" :loading="pending" />
-  <template v-else>
-    <div class="detail-meta"><StatusBadge :status="data.status" /><span>{{ data.enabled ? '已启用转发' : '已停用转发' }}</span><span>当前并发 {{ data.inFlight }} / {{ data.maxConcurrency }}</span><span>最近同步 {{ formatDate(data.lastSyncAt) }}</span></div>
+  <template v-else-if="form">
+    <div class="detail-meta"><StatusBadge :status="data.status" /><span>{{ data.quotaPaused ? '额度用尽 · 自动暂停' : data.enabled ? '已启用转发' : '手动停用转发' }}</span><span>当前并发 {{ data.inFlight }} / {{ data.maxConcurrency }}</span><span>最近同步 {{ formatDate(data.lastSyncAt) }}</span></div>
+    <div v-if="data.quotaPaused" class="notice warning-notice quota-pause-notice"><UIcon name="i-ph-pause-circle-bold" /><div><strong>配额已满，账号已自动暂停</strong><p>{{ data.quotaResumeAt ? '恢复检查时间：' + formatDate(data.quotaResumeAt) + '。到期复查额度，恢复后自动启用。' : '上游尚未提供完整恢复时间，将定期复查额度，恢复后自动启用。' }}</p><button class="button small" :disabled="busy" @click="cancelQuotaResume">取消自动恢复，保持停用</button></div></div>
     <div v-if="data.syncError" class="notice error-notice" role="alert"><UIcon name="i-ph-warning-circle-bold" /><div><strong>最近一次同步未成功</strong><p>{{ data.syncError }}</p><p v-if="data.snapshot">下方保留最近成功获取的数据，请留意获取时间。</p></div></div>
     <div v-else-if="!data.snapshot" class="notice"><UIcon name="i-ph-clock-bold" /><div><strong>尚未获取账号快照</strong><p>请等待后台同步，或点击“刷新上游数据”。未知值不会显示为零。</p></div></div>
     <div class="account-detail-grid">
-      <section class="panel"><div class="panel-heading"><h2>账号资料</h2><span class="muted">本地管理信息</span></div><form class="form-stack" @submit.prevent="save"><label class="field"><span>显示名称</span><input v-model="form.label" maxlength="200" placeholder="便于识别的账号名称"></label><label class="field"><span>分组</span><input v-model="form.groupName" maxlength="100" placeholder="未分组"></label><label class="field"><span>备注</span><textarea v-model="form.note" rows="3" maxlength="4000" placeholder="记录用途或需要留意的事项" /></label><div class="form-row"><label class="field"><span>单账号并发上限</span><input v-model.number="form.maxConcurrency" type="number" min="1" step="1" required></label><label class="toggle-field"><input v-model="form.enabled" type="checkbox"><span>启用账号转发</span></label></div><div class="form-actions"><button class="button primary" :disabled="busy || !dirty"><UIcon v-if="busy" name="i-ph-circle-notch-bold" class="spinning" />保存修改</button><button class="button" type="button" :disabled="busy || !dirty" @click="fillForm(data)">还原</button><span v-if="dirty" class="muted small-text">有未保存修改</span></div></form><dl class="identity-list"><div><dt>邮箱</dt><dd>{{ data.email || '尚未获取' }}</dd></div><div><dt>上游 API Key</dt><dd>{{ data.hasApiKey ? '已保存' : '尚未获取' }}</dd></div><div><dt>最近调用</dt><dd>{{ formatDate(data.lastUsedAt) }}</dd></div><div><dt>导入时间</dt><dd>{{ formatDate(data.createdAt) }}</dd></div><div><dt>账号 ID</dt><dd class="mono small-text">{{ data.id }}</dd></div></dl></section>
+      <section class="panel"><div class="panel-heading"><h2>账号资料</h2><span class="muted">本地管理信息</span></div><form @submit.prevent="save"><fieldset class="form-stack" :disabled="busy"><label class="field"><span>显示名称</span><input v-model="form.label" maxlength="200" placeholder="便于识别的账号名称"></label><label class="field"><span>分组</span><input v-model="form.groupName" maxlength="100" placeholder="未分组"></label><label class="field"><span>备注</span><textarea v-model="form.note" rows="3" maxlength="5000" placeholder="记录用途或需要留意的事项" /></label><div class="form-row"><label class="field"><span>单账号并发上限</span><input v-model.number="form.maxConcurrency" type="number" min="1" max="100" step="1" required></label><label class="toggle-field"><input v-model="form.enabled" type="checkbox"><span>启用账号转发</span></label></div><div class="form-actions"><button class="button primary" :disabled="busy || !dirty"><UIcon v-if="busy" name="i-ph-circle-notch-bold" class="spinning" />保存修改</button><button class="button" type="button" :disabled="busy || !dirty" @click="reset()">还原</button><span v-if="dirty" class="muted small-text">有未保存修改</span></div></fieldset></form><dl class="identity-list"><div><dt>邮箱</dt><dd>{{ data.email || '尚未获取' }}</dd></div><div><dt>上游 API Key</dt><dd>{{ data.hasApiKey ? '已保存' : '尚未获取' }}</dd></div><div><dt>最近调用</dt><dd>{{ formatDate(data.lastUsedAt) }}</dd></div><div><dt>导入时间</dt><dd>{{ formatDate(data.createdAt) }}</dd></div><div><dt>账号 ID</dt><dd class="mono small-text">{{ data.id }}</dd></div></dl></section>
       <div class="detail-right">
         <section class="panel"><div class="panel-heading"><h2>额度余额</h2><span class="muted small-text">获取于 {{ formatDate(data.snapshot?.fetchedAt) }}</span></div><RawFields :value="data.snapshot?.credits" /><p class="panel-note">保留上游字段与实际数值，不根据调用次数推算余额。</p></section>
-        <section class="panel"><div class="panel-heading"><h2>使用窗口</h2><StatusBadge v-if="data.snapshot?.windowLimits?.limited" status="cooldown" label="当前受限" /></div><div class="window-grid"><div v-for="window in windows" :key="window.label" class="usage-window"><h3>{{ window.label }}</h3><template v-if="window.value"><div class="window-value"><strong>{{ formatNumber(window.value.used) }}</strong><span>/ {{ formatNumber(window.value.cap) }}</span><StatusBadge v-if="window.value.exceeded" status="cooldown" label="已达上限" /></div><progress v-if="window.value.cap > 0" :value="percent(window.value)" max="100" /><p>重置时间 {{ formatDate(window.value.resetAt) }}</p></template><template v-else><strong class="unknown-value">未知</strong><p>上游暂未返回此窗口数据</p></template></div></div><p v-if="data.snapshot?.windowLimits?.exceeded" class="panel-note">上游限制标记：{{ data.snapshot.windowLimits.exceeded }}</p></section>
+        <section class="panel"><div class="panel-heading"><h2>账号配额</h2><span class="muted small-text">获取于 {{ formatDate(data.snapshot?.fetchedAt) }}</span></div><AccountQuota :snapshot="data.snapshot" /><p class="panel-note">5h、周、月配额任一项达到上限时自动暂停；到期复查确认恢复后自动启用。缺失数据以“未提供”显示。</p></section>
         <section class="panel"><div class="panel-heading"><h2>订阅信息</h2></div><dl class="summary-rows"><div><dt>套餐</dt><dd class="small-value">{{ data.snapshot?.subscription.planId || '未知' }}</dd></div><div><dt>订阅状态</dt><dd class="small-value">{{ data.snapshot?.subscription.status || '未知' }}</dd></div><div><dt>当前周期开始</dt><dd class="small-value">{{ formatDate(data.snapshot?.subscription.currentPeriodStart) }}</dd></div><div><dt>当前周期结束</dt><dd class="small-value">{{ formatDate(data.snapshot?.subscription.currentPeriodEnd) }}</dd></div><div><dt>周期结束后取消</dt><dd class="small-value">{{ displayValue(data.snapshot?.subscription.cancelAtPeriodEnd) }}</dd></div></dl></section>
       </div>
     </div>

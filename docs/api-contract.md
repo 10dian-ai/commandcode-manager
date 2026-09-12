@@ -32,7 +32,7 @@ All `/api/external/` routes require a dedicated `ccm_service_` key via `Authoriz
 - GET /api/external/accounts?q=&status=&group=&page=1&pageSize=50 -> {items:AccountView[],total,page,pageSize,groups:string[]}; same validation and stored account data as the admin list, including nullable email. Includes disabled accounts unless filtered; no upstream refresh or credential export.
 - GET /api/external/accounts/:id -> AccountView including email and observedModels; UUID validation and 404 for a missing account.
 - GET /api/external/jobs/:id -> JobView (404 after the queue job expires).
-- GET /api/external/pool -> DashboardView, using the same stored database and Redis state as the admin dashboard. `ready` does not guarantee model access, sufficient quota, or a free concurrency slot; `lastSyncAt` indicates the latest account sync, not that every account was refreshed then.
+- GET /api/external/pool -> DashboardView, using the same stored database and Redis state as the admin dashboard. `ready` counts enabled, successfully synced accounts with an API key and no exhausted quota in their stored snapshot; it does not guarantee model access or a free concurrency slot; `lastSyncAt` indicates the latest account sync, not that every account was refreshed then.
 
 See [external-api.md](external-api.md) for request examples, limits and status semantics.
 
@@ -71,3 +71,6 @@ Respect actual MODEL_NOT_IN_PLAN independent of HTTP401. Unknown models can be a
 Never retry ambiguous execution failures or restart a stream. Preserve content and structured usage.
 The root supplies auth/logging functions; data agent supplies queues/settings.
 No test credentials in source, no public exposing PostgreSQL/Redis/core, no core automatic update.
+
+- DashboardView.quota contains accountCount and fiveHour/weekly/monthly totals: used, cap, remaining, knownAccounts, unknownAccounts. Missing window data is excluded from totals and counted independently.
+- AccountView exposes quotaPaused and quotaResumeAt. Manual disable cancels automatic recovery; enabling a quota-paused account requests an immediate refresh and keeps it paused until recovery is confirmed.

@@ -17,7 +17,11 @@ export default defineEventHandler(async event=>{
     const rows=await sql`DELETE FROM managed_accounts WHERE id IN ${sql(unique)} RETURNING id`
     affected=rows.length
   } else {
-    const rows=await sql`UPDATE managed_accounts SET enabled=${action==='enable'},updated_at=now() WHERE id IN ${sql(unique)} RETURNING id`
+    const rows=action==='disable'
+      ? await sql`UPDATE managed_accounts SET enabled=false,quota_paused=false,quota_resume_at=NULL,quota_pause_reasons='{}',updated_at=now() WHERE id IN ${sql(unique)} RETURNING id`
+      : await sql`UPDATE managed_accounts SET enabled=CASE WHEN quota_paused THEN false ELSE true END,
+        quota_resume_at=CASE WHEN quota_paused THEN now() ELSE NULL END,updated_at=now() WHERE id IN ${sql(unique)} RETURNING id`
+    if(action==='enable')for(const row of rows)await enqueueAccountRefresh(row.id,{reason:'manual',force:true})
     affected=rows.length
   }
   await publishUpdate({type:'accounts'})

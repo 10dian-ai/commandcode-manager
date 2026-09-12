@@ -207,7 +207,9 @@ curl --fail-with-body "$CCM_URL/api/external/pool" \
 | --- | --- |
 | `counts.total` | 池中全部账号数量。 |
 | `counts.enabled` | 已启用账号数量。 |
-| `counts.ready` | 已启用、同步状态为 `ready` 且已保存上游 API Key 的账号数量。 |
+| `counts.ready` | 已启用、同步状态为 `ready`、已保存上游 API Key，且最近同步快照未显示配额耗尽的账号数量。 |
+| `quota.accountCount` | 参与配额汇总的账号数量，与 `counts.ready` 相同。 |
+| `quota.fiveHour` / `quota.weekly` / `quota.monthly` | 分别返回 `used`、`cap`、`remaining`、`knownAccounts`、`unknownAccounts`，表示已用、总额、剩余及该窗口数据已知/未知的账号数。 |
 | `counts.needsAttention` | 已启用且状态为 `credential_expired` 或 `sync_error` 的账号数量。 |
 | `counts.notSynced` | 尚无成功同步时间的账号数量，包含停用账号。 |
 | `requests.total/success/failed` | 当前保留的真实请求日志分别统计的总量、成功量和错误量。 |
@@ -216,6 +218,8 @@ curl --fail-with-body "$CCM_URL/api/external/pool" \
 | `services.kernel` | 本次内核健康检查是否返回成功。 |
 | `services.workerLastSeen` | 最近一次 Worker 心跳时间；没有记录时为 `null`。 |
 | `lastSyncAt` | 全部账号中最近的成功同步时间；不表示所有账号都在该时间同步，没有记录时为 `null`。 |
+
+配额按正常且已启用账号的最近快照逐项汇总；未提供的窗口不参与该项总额，并计入 `unknownAccounts`。账号列表和详情增加 `quotaPaused`、`quotaResumeAt`，用于区分系统因配额暂停与手动停用。完整语义见[号池配额与自动恢复](quota-management.md)。
 
 账号统计读取本地最近同步状态，**查询池状态不会触发上游额度刷新**。`ready` 不代表当前额度足够、特定模型已授权或当前还有并发空位。各计数按自身条件独立统计，存在重叠，不能用总数相减推导其他分类。请求日志统计也不代表上游账单或剩余额度。
 

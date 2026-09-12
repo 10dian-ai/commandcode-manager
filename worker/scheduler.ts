@@ -16,15 +16,24 @@ export async function schedulerTick() {
     acquired=!!await redis.set(lock,token,'PX',120_000,'NX')
     if(!acquired)return
     const settings=await getSettings(),sql=getDb(),now=Date.now()
-    const rows=await sql`SELECT id,status,last_sync_at,last_used_at FROM managed_accounts WHERE enabled=true AND status<>'credential_expired' ORDER BY last_sync_at ASC NULLS FIRST LIMIT 2000`
+    // Rotate a bounded scan by stable account ID. Repeated failures or long refresh intervals
+    // in the first page must not permanently hide the rest of a large account pool.
+    const cursorKey='ccm:worker:scheduler-cursor', cursor=await redis.get(cursorKey)
+    const rows=await sql`SELECT id,status,last_sync_at,last_used_at,quota_paused,quota_resume_at FROM managed_accounts WHERE (enabled=true OR quota_paused=true) AND status<>'credential_expired'
+      AND (${cursor || null}::uuid IS NULL OR id>${cursor || null}::uuid) ORDER BY id LIMIT 2000`
     for(const row of rows) {
+      const resumeAt=row.quota_resume_at ? new Date(row.quota_resume_at).getTime() : null
+      if(row.quota_paused && resumeAt !== null && resumeAt>now)continue
       const interval=(row.last_used_at && now-new Date(row.last_used_at).getTime()<settings.activeWindowSeconds*1000 ? settings.activeRefreshSeconds : settings.idleRefreshSeconds)*1000
       const spread=createHash('sha256').update(row.id).digest().readUInt32BE(0)%Math.max(1000,Math.floor(interval/5))
       const age=row.last_sync_at ? now-new Date(row.last_sync_at).getTime() : Infinity
-      if(age<interval+spread)continue
+      const resetDue=row.quota_paused && resumeAt!==null && resumeAt<=now && (!row.last_sync_at || new Date(row.last_sync_at).getTime()<resumeAt)
+      if(!resetDue && age<interval+spread)continue
       if(await redis.exists(`ccm:refresh:backoff:${row.id}`))continue
       await enqueueAccountRefresh(row.id,{reason:'scheduled'})
     }
+    if(rows.length===2000)await redis.set(cursorKey,rows[rows.length-1]!.id)
+    else await redis.del(cursorKey)
     const catalogDate=await redis.get('ccm:catalog:last-attempt')
     if(!catalogDate || now-Number(catalogDate)>3600_000) {
       await redis.set('ccm:catalog:last-attempt',String(now))

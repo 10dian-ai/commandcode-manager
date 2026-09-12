@@ -4,6 +4,7 @@ import { getRedis } from '../server/lib/redis'
 import { decryptSecret } from '../server/lib/crypto'
 import { CommandCodeClient, CommandCodeError } from '../server/lib/commandcode'
 import { createPendingAccount, attachIdentity } from '../server/lib/accounts'
+import { saveAccountSnapshot, completeAccountSync } from '../server/lib/account-quota'
 import type { ImportJobData } from '../server/lib/queues'
 import { publishUpdate } from '../server/lib/events'
 import type { ImportResult, AccountSnapshot } from '../shared/types'
@@ -33,19 +34,23 @@ export async function syncAccount(id:string,priorSession?:unknown):Promise<void>
     const scopedClient=new CommandCodeClient({beforeRequest:async()=>{await rateLimitUpstream();await assertLock()}})
     try {
       const snapshot=await scopedClient.snapshot(cookie,priorSession)
+      await assertLock()
       if(account.upstream_user_id && snapshot.identity.id!==account.upstream_user_id)throw new CommandCodeError('SESSION_IDENTITY_CHANGED',401,true)
       if(!account.upstream_user_id) {
         const attached=await attachIdentity(id,snapshot.identity,account.credential_fingerprint,account.cookie_ciphertext)
         if(attached.account.id!==id)return attached.account.id as string
       }
-      const updated=await sql`UPDATE managed_accounts SET snapshot=${sql.json(snapshot as any)},email=${snapshot.identity.email},last_sync_at=now(),updated_at=now()
-        WHERE id=${id} AND credential_fingerprint=${account.credential_fingerprint} RETURNING id`
+      const updated=await saveAccountSnapshot(id,account.credential_fingerprint,snapshot,account.snapshot ?? null)
       if(!updated.length)return
       await assertLock(); await ensureDedicatedKey(id,cookie,scopedClient)
-      await sql`UPDATE managed_accounts SET status='ready',sync_error=NULL,updated_at=now() WHERE id=${id} AND credential_fingerprint=${account.credential_fingerprint}`
+      await assertLock(); await completeAccountSync(id,account.credential_fingerprint,snapshot)
       await getRedis().del(`ccm:refresh:backoff:${id}`,`ccm:refresh:failures:${id}`)
       await publishUpdate({type:'accounts',accountId:id})
-    } catch(error) {await markSyncFailure(id,error,account.credential_fingerprint);throw error}
+    } catch(error) {
+      // A worker that lost ownership must not overwrite a newer sync's status.
+      try { await assertLock() } catch { throw new Error('ACCOUNT_SYNC_LOCK_LOST') }
+      await markSyncFailure(id,error,account.credential_fingerprint);throw error
+    }
   })
   if(redirected)await syncAccount(redirected)
 }
@@ -70,7 +75,7 @@ export async function processImport(job:Job<ImportJobData & {checkpoint?:Checkpo
       await syncAccount(accountId!,session)
       if(attached.updated)result.updated++;else result.imported++
     } catch(error) {
-      if(accountId)await markSyncFailure(accountId,error,entry.fingerprint)
+      if(accountId && !(error instanceof Error && error.message==='ACCOUNT_SYNC_LOCK_LOST'))await markSyncFailure(accountId,error,entry.fingerprint)
       result.failed++;result.errors.push({line:entry.line,message:syncErrorMessage(error)})
     }
     await job.updateData({...job.data,checkpoint:{next:i+1,result}})

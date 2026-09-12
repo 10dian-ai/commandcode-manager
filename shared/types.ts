@@ -2,14 +2,14 @@ export interface UsageWindow { used: number; cap: number; exceeded: boolean; res
 export interface AccountSnapshot {
   identity: { id: string; name: string; email: string | null }
   credits: Record<string, unknown>
-  windowLimits: { limited?: boolean; exceeded?: string | null; fiveHour?: UsageWindow; weekly?: UsageWindow } | null
+  windowLimits: { limited?: boolean; exceeded?: string | null; fiveHour?: UsageWindow; weekly?: UsageWindow; monthly?: UsageWindow } | null
   subscription: { planId: string | null; status: string | null; currentPeriodStart: string | null; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean | null }
   usage: Record<string, unknown> | null
   fetchedAt: string
 }
 export interface AccountView {
   id: string; label: string; email: string | null; groupName: string; note: string
-  enabled: boolean; status: 'pending' | 'ready' | 'credential_expired' | 'sync_error'
+  enabled: boolean; quotaPaused: boolean; quotaResumeAt: string | null; status: 'pending' | 'ready' | 'credential_expired' | 'sync_error'
   maxConcurrency: number; inFlight: number; hasApiKey: boolean
   observedModels?: {modelId:string;status:"allowed"|"denied"|"cooldown";reason:string|null;cooldownUntil:string|null;lastCheckedAt:string}[]; snapshot: AccountSnapshot | null; syncError: string | null
   lastSyncAt: string | null; lastUsedAt: string | null; createdAt: string
@@ -36,7 +36,9 @@ export interface RequestLogView {
 export interface ImportResult { imported: number; updated: number; failed: number; skipped: number; errors: { line: number; message: string }[] }
 export interface JobView { id: string; status: string; progress: { processed: number; total: number }; result: ImportResult | null; error: string | null }
 export interface ModelView { id: string; name: string; observedAllowed: number; observedDenied: number; unknownAccounts: number; updatedAt: string }
+export interface QuotaTotal { used: number; cap: number; remaining: number; knownAccounts: number; unknownAccounts: number }
 export interface DashboardView {
+  quota: { accountCount: number; fiveHour: QuotaTotal; weekly: QuotaTotal; monthly: QuotaTotal }
   counts: { total: number; enabled: number; ready: number; needsAttention: number; notSynced: number }
   requests: { total: number; success: number; failed: number; inFlight: number }
   services: { database: boolean; redis: boolean; workerLastSeen: string | null; kernel: boolean }

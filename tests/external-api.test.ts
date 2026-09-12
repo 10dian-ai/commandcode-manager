@@ -52,6 +52,7 @@ describe('external account and pool API over HTTP', () => {
       const query = strings.join('?')
       if (query.includes('FROM service_keys')) return fixture.serviceEnabled && values[0] === hashGatewayKey(serviceSecret) ? [{ id: 'service-key-id', name: 'External importer' }] : []
       if (query.includes('UPDATE service_keys')) return []
+      if (query.includes('AS has_api_key')) return Array.from({length:8},()=>({enabled:true,status:'ready',has_api_key:true,snapshot:null}))
       if (query.includes('FROM managed_accounts')) return [fixture.accounts]
       if (query.includes('FROM request_logs')) return [fixture.requests]
       throw new Error('Unexpected database query')
@@ -167,6 +168,10 @@ describe('external account and pool API over HTTP', () => {
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toEqual({
+      quota: { accountCount:8,
+        fiveHour:{used:0,cap:0,remaining:0,knownAccounts:0,unknownAccounts:8},
+        weekly:{used:0,cap:0,remaining:0,knownAccounts:0,unknownAccounts:8},
+        monthly:{used:0,cap:0,remaining:0,knownAccounts:0,unknownAccounts:8} },
       counts: { total: 19, enabled: 14, ready: 8, needsAttention: 3, notSynced: 6 },
       requests: { total: 39, success: 20, failed: 7, inFlight: 5 },
       services: { database: true, redis: true, workerLastSeen: '2026-09-12T01:02:00Z', kernel: true },

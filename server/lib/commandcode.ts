@@ -1,4 +1,5 @@
 import type { AccountSnapshot, UsageWindow } from '../../shared/types'
+import { getQuotaWindows } from '../../shared/quota'
 
 type Json = Record<string, unknown>
 const object = (value: unknown): Json | null => value && typeof value === 'object' && !Array.isArray(value) ? value as Json : null
@@ -39,7 +40,7 @@ export function buildSnapshot(session: unknown, creditsResponse: unknown, subscr
   const limits = object(creditsData?.windowLimits)
   const usage = object(unwrap(usageResponse))
   if (!usage) throw new CommandCodeError('INVALID_USAGE_RESPONSE', 502)
-  return {
+  const snapshot: AccountSnapshot = {
     identity: { id: user.id, name: text(user.name) ?? text(user.login) ?? user.id, email: text(user.email) },
     credits,
     windowLimits: limits ? {
@@ -47,6 +48,7 @@ export function buildSnapshot(session: unknown, creditsResponse: unknown, subscr
       ...(limits.exceeded === null || typeof limits.exceeded === 'string' ? { exceeded: limits.exceeded } : {}),
       ...(window(limits.fiveHour) ? { fiveHour: window(limits.fiveHour) } : {}),
       ...(window(limits.weekly) ? { weekly: window(limits.weekly) } : {}),
+      ...(window(limits.monthly) ? { monthly: window(limits.monthly) } : {}),
     } : null,
     subscription: {
       planId: text(subscription?.planId), status: text(subscription?.status),
@@ -55,6 +57,9 @@ export function buildSnapshot(session: unknown, creditsResponse: unknown, subscr
     },
     usage, fetchedAt: new Date().toISOString(),
   }
+  const monthly = getQuotaWindows(snapshot).monthly
+  if (monthly) snapshot.windowLimits = { ...snapshot.windowLimits, monthly }
+  return snapshot
 }
 export interface UpstreamKey { id: string; name: string; apiKey?: string }
 export interface CatalogModel { id: string; name: string; metadata: Json }

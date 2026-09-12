@@ -3,6 +3,7 @@ import { getDb } from './db'
 import { getRedis } from './redis'
 import { getSettings } from './settings'
 import { publishUpdate } from './events'
+import { enqueueAccountRefresh } from './queues'
 import type { AccountView, AccountSnapshot, ModelView } from '../../shared/types'
 const iso = (value: unknown): string | null => value == null ? null : new Date(value as string).toISOString()
 export async function accountViews(rows: Record<string, any>[]): Promise<AccountView[]> {
@@ -13,7 +14,7 @@ export async function accountViews(rows: Record<string, any>[]): Promise<Account
   if(rows.length && (!counts || counts.some(result=>result[0])))throw new Error('Unable to read current account concurrency')
   return rows.map((row,index) => ({
     id: row.id, label: row.label, email: row.email, groupName: row.group_name, note: row.note,
-    enabled: row.enabled, status: row.status, maxConcurrency: row.max_concurrency,
+    enabled: row.enabled, quotaPaused: !!row.quota_paused, quotaResumeAt: iso(row.quota_resume_at), status: row.status, maxConcurrency: row.max_concurrency,
     inFlight: Number(counts?.[index]?.[1] ?? 0), hasApiKey: !!row.api_key_ciphertext,
     snapshot: row.snapshot as AccountSnapshot | null, syncError: row.sync_error,
     lastSyncAt: iso(row.last_sync_at), lastUsedAt: iso(row.last_used_at), createdAt: iso(row.created_at)!,
@@ -38,13 +39,16 @@ export async function listAccounts(input: { q?:string; status?:string; group?:st
   return {items:await accountViews(rows),total:count[0]!.total,page:input.page,pageSize:input.pageSize,groups:groups.map(g=>g.group_name)}
 }
 export async function patchAccount(id:string, values: {label?:string;groupName?:string;note?:string;enabled?:boolean;maxConcurrency?:number}) {
-  const sql=getDb(), updates: Record<string, string|number|boolean|Date>={updated_at:new Date()}
-  for (const [key,column] of Object.entries({label:'label',groupName:'group_name',note:'note',enabled:'enabled',maxConcurrency:'max_concurrency'})) {
+  const sql=getDb(), updates: Record<string, string|number|boolean|Date|null|string[]>={updated_at:new Date()}
+  for (const [key,column] of Object.entries({label:'label',groupName:'group_name',note:'note',maxConcurrency:'max_concurrency'})) {
     const value=values[key as keyof typeof values]
     if (value !== undefined) updates[column]=value
   }
-  const rows=await sql`UPDATE managed_accounts SET ${sql(updates)} WHERE id=${id} RETURNING id`
+  if (values.enabled === false) Object.assign(updates,{enabled:false,quota_paused:false,quota_resume_at:null,quota_pause_reasons:[]})
+  const enable = values.enabled === true ? sql`,enabled=CASE WHEN quota_paused THEN false ELSE true END,quota_resume_at=CASE WHEN quota_paused THEN now() ELSE NULL END` : sql``
+  const rows=await sql`UPDATE managed_accounts SET ${sql(updates)} ${enable} WHERE id=${id} RETURNING id`
   if (!rows.length) return null
+  if (values.enabled === true) await enqueueAccountRefresh(id,{reason:'manual',force:true})
   await publishUpdate({type:'accounts',accountId:id})
   return getAccount(id)
 }
