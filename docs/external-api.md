@@ -1,6 +1,6 @@
 # 外调服务 API
 
-外部服务可以通过这组端点添加账号、查询导入任务和获取池状态。先登录后台，进入 **API 密钥 → 外调服务 Key → 创建外调服务 Key**，保存创建时显示的完整密钥。
+外部服务可以通过这组端点添加账号、查询账号邮箱及详情、查询导入任务和获取池状态。先登录后台，进入 **API 密钥 → 外调服务 Key → 创建外调服务 Key**，保存创建时显示的完整密钥。
 
 外调服务 Key 使用 `ccm_service_` 前缀，和模型调用的 `ccm_` Key 分开管理、验证。外调 Key 不能调用 `/v1/*`，模型 Key 不能调用 `/api/external/*`。后台登录 Cookie 也不能替代外调 Key。
 
@@ -88,6 +88,44 @@ curl --fail-with-body "$CCM_URL/api/external/accounts" \
 - 空行会忽略；行号按原始文本计数。
 
 HTTP 202 只表示任务已排队。身份、订阅、额度和上游 Key 由 Worker 后续验证，最终成功数量需查询任务结果。重复凭证会跳过；同一账号的新凭证在身份确认后可更新已有账号。
+
+## 查询账号列表和邮箱
+
+`GET /api/external/accounts`
+
+返回与后台账号列表相同的分页结构：`{items,total,page,pageSize,groups}`。`items` 中每个账号的 `id` 是本地账号 UUID，`email` 是从上游账号身份同步的邮箱；未提供或尚未同步时为 `null`。
+
+| 查询参数 | 含义 |
+| --- | --- |
+| `q` | 按账号名称或邮箱搜索，最多 200 个字符。 |
+| `status` | 可选 `pending`、`ready`、`credential_expired`、`sync_error`；省略或空字符串表示全部。 |
+| `group` | 按分组名称精确筛选，最多 100 个字符。 |
+| `page` | 页码，默认 1，范围 1–100,000。 |
+| `pageSize` | 每页数量，默认 50，范围 1–200。 |
+
+```sh
+curl --fail-with-body --get "$CCM_URL/api/external/accounts" \
+  -H "Authorization: Bearer $CCM_SERVICE_KEY" \
+  --data-urlencode 'page=1' \
+  --data-urlencode 'pageSize=100'
+```
+
+筛选邮箱时增加 `--data-urlencode 'q=你的账号邮箱'`。获取整个池子的邮箱时按页读取，直到 `page * pageSize >= total`；默认包含停用账号。
+
+列表还包含账号名称 `label`、分组 `groupName`、备注 `note`、启用状态 `enabled`、同步状态 `status`、最近同步时间 `lastSyncAt`、并发占用 `inFlight` 和最近同步快照 `snapshot`。不会返回登录 Cookie、会话 Token、上游 API Key 或其密文。
+
+## 查询单个账号
+
+`GET /api/external/accounts/:id`
+
+将 `:id` 替换为账号列表中的 `id`。直接返回账号对象，包含 `email` 及列表中的其他账号字段，并增加该账号的模型权限观察列表 `observedModels`。格式无效的 ID 返回 400，账号不存在返回 404。
+
+```sh
+curl --fail-with-body "$CCM_URL/api/external/accounts/替换为账号UUID" \
+  -H "Authorization: Bearer $CCM_SERVICE_KEY"
+```
+
+以上两个查询读取本地已有数据，不触发上游刷新。
 
 ## 查询导入进度
 
@@ -183,9 +221,9 @@ curl --fail-with-body "$CCM_URL/api/external/pool" \
 
 ## 错误与密钥管理
 
-- **400**：JSON 结构、字段或任务 ID 格式无效；批量文本超限也会被拒绝。逐行凭证格式错误通常记录到 `rejected`，随后可在任务结果中查看。
+- **400**：JSON 结构、字段、分页筛选参数、账号或任务 ID 格式无效；批量文本超限也会被拒绝。逐行凭证格式错误通常记录到 `rejected`，随后可在任务结果中查看。
 - **401**：外调 Key 缺失、无效、停用或已撤销，或使用了模型 Key。
-- **404**：导入任务不存在或已过期。
+- **404**：账号不存在，或导入任务不存在、已过期。
 - **5xx**：服务或依赖暂时不可用，应保留错误信息并重试。
 
-外调 Key 的创建、停用、启用、撤销都在后台 **API 密钥 → 外调服务 Key** 操作。每个启用的外调 Key 都具有这组三个端点的访问权限；这组端点不提供 Key 管理接口，不能代替管理员登录后台。
+外调 Key 的创建、停用、启用、撤销都在后台 **API 密钥 → 外调服务 Key** 操作。每个启用的外调 Key 都具有这组五个端点的访问权限；这组端点不提供 Key 管理接口，不能代替管理员登录后台。

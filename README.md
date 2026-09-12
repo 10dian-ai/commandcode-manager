@@ -74,9 +74,11 @@ npm run dev
 
 ## 外调服务 API
 
-在后台 **API 密钥 → 外调服务 Key** 创建独立的 `ccm_service_` 密钥，即可通过 API 添加账号、查询导入任务和读取池状态。外调 Key 与客户端使用的模型 API Key 分开验证。
+在后台 **API 密钥 → 外调服务 Key** 创建独立的 `ccm_service_` 密钥，即可通过 API 添加账号、查询邮箱及账号详情、查询导入任务和读取池状态。外调 Key 与客户端使用的模型 API Key 分开验证。
 
 - `POST /api/external/accounts`：提交单个或批量账号，返回导入任务 ID。
+- `GET /api/external/accounts`：分页查询池内账号及邮箱，支持名称、邮箱、状态和分组筛选。
+- `GET /api/external/accounts/:id`：读取单个账号的邮箱、状态、同步快照和模型权限观察信息。
 - `GET /api/external/jobs/:id`：查询导入进度和最终结果。
 - `GET /api/external/pool`：读取与后台概览相同的账号、请求及服务状态。
 

@@ -29,6 +29,8 @@ Types are in shared/types.ts; DTOs use camelCase, DB uses snake_case.
 All `/api/external/` routes require a dedicated `ccm_service_` key via `Authorization: Bearer KEY` or `x-api-key: KEY`. Admin sessions and model gateway keys do not authorize these routes. External service keys cannot authorize `/v1/` or admin API routes. Both key families can be created, disabled and revoked independently in the admin API keys page.
 
 - POST /api/external/accounts {text|token|cookie,groupName?} -> HTTP 202 {jobId,accepted,rejected,duplicates}; exactly one credential field is required. Uses the same encrypted asynchronous import queue as the admin UI.
+- GET /api/external/accounts?q=&status=&group=&page=1&pageSize=50 -> {items:AccountView[],total,page,pageSize,groups:string[]}; same validation and stored account data as the admin list, including nullable email. Includes disabled accounts unless filtered; no upstream refresh or credential export.
+- GET /api/external/accounts/:id -> AccountView including email and observedModels; UUID validation and 404 for a missing account.
 - GET /api/external/jobs/:id -> JobView (404 after the queue job expires).
 - GET /api/external/pool -> DashboardView, using the same stored database and Redis state as the admin dashboard. `ready` does not guarantee model access, sufficient quota, or a free concurrency slot; `lastSyncAt` indicates the latest account sync, not that every account was refreshed then.
 
