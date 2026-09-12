@@ -49,6 +49,19 @@ describe.skipIf(!databaseUrl)('PostgreSQL account schema integration', () => {
     expect(tables.length).toBeGreaterThanOrEqual(8)
   })
 
+  it('keeps external service keys separate from model keys and preserves them across migration reruns', async () => {
+    const serviceId = randomUUID(), gatewayId = randomUUID(), hash = randomUUID()
+    await sql`INSERT INTO service_keys(id,name,prefix,secret_hash) VALUES(${serviceId},'external','ccm_service_test',${hash})`
+    await sql`INSERT INTO gateway_keys(id,name,prefix,secret_hash) VALUES(${gatewayId},'model','ccm_test',${hash})`
+    await expect(sql`INSERT INTO service_keys(id,name,prefix,secret_hash) VALUES(${randomUUID()},'duplicate','ccm_service_test',${hash})`)
+      .rejects.toMatchObject({ code: '23505' })
+    await migrate(sql)
+    expect((await sql`SELECT name,enabled,last_used_at FROM service_keys WHERE id=${serviceId}`)[0])
+      .toMatchObject({ name: 'external', enabled: true, last_used_at: null })
+    await sql`DELETE FROM service_keys WHERE id=${serviceId}`
+    expect(await sql`SELECT id FROM gateway_keys WHERE id=${gatewayId}`).toHaveLength(1)
+  })
+
   it('enforces independent upstream identity and credential fingerprint uniqueness', async () => {
     const upstreamId = `user-${randomUUID()}`, fingerprint = randomUUID()
     await sql`INSERT INTO managed_accounts(id,upstream_user_id,credential_fingerprint,cookie_ciphertext)

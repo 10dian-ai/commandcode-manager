@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS service_keys (
+ id UUID PRIMARY KEY,
+ name TEXT NOT NULL,
+ prefix TEXT NOT NULL,
+ secret_hash TEXT UNIQUE NOT NULL,
+ enabled BOOLEAN NOT NULL DEFAULT true,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ last_used_at TIMESTAMPTZ
+);

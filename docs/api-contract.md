@@ -3,7 +3,7 @@
 Node 24 / Nuxt 4, root owns package/config, infrastructure and auth.
 Types are in shared/types.ts; DTOs use camelCase, DB uses snake_case.
 
-## API (all /api protected by root auth middleware except auth/session and auth/login)
+## Admin API (session authentication; auth/session and auth/login are public)
 - GET /api/auth/session -> { authenticated, username }
 - POST /api/auth/login {username,password}; POST /api/auth/logout
 - GET /api/dashboard -> DashboardView
@@ -14,6 +14,8 @@ Types are in shared/types.ts; DTOs use camelCase, DB uses snake_case.
 - PATCH /api/accounts/:id {label?,groupName?,note?,enabled?,maxConcurrency?} -> AccountView
 - POST /api/accounts/actions {ids,action:'refresh'|'enable'|'disable'|'delete'} -> {ok:true,affected}
 - GET /api/models -> {items:ModelView[],updatedAt:string|null}
+- GET /api/service-keys -> {items:GatewayKeyView[]}; POST {name} -> {key:string,item:GatewayKeyView} (independent external service keys)
+- PATCH /api/service-keys/:id {name?,enabled?} -> {ok:true}; DELETE /api/service-keys/:id -> {ok:true}
 - GET /api/keys -> {items:GatewayKeyView[]}; POST {name} -> {key:string,item:GatewayKeyView}
 - PATCH /api/keys/:id {name?,enabled?} -> {ok:true}; DELETE /api/keys/:id -> {ok:true}
 - GET /api/logs?page=&pageSize=&model=&status= -> {items:RequestLogView[],total,page,pageSize}
@@ -21,6 +23,16 @@ Types are in shared/types.ts; DTOs use camelCase, DB uses snake_case.
 - GET /api/settings -> {settings:SystemSettings,kernel:{version,upstreamCommit,cliVersion}}
 - PATCH /api/settings (SystemSettings) -> same shape as GET
 - GET /api/events -> SSE "update" JSON {type,accountId?}; keepalive.
+
+## External service API
+
+All `/api/external/` routes require a dedicated `ccm_service_` key via `Authorization: Bearer KEY` or `x-api-key: KEY`. Admin sessions and model gateway keys do not authorize these routes. External service keys cannot authorize `/v1/` or admin API routes. Both key families can be created, disabled and revoked independently in the admin API keys page.
+
+- POST /api/external/accounts {text|token|cookie,groupName?} -> HTTP 202 {jobId,accepted,rejected,duplicates}; exactly one credential field is required. Uses the same encrypted asynchronous import queue as the admin UI.
+- GET /api/external/jobs/:id -> JobView (404 after the queue job expires).
+- GET /api/external/pool -> DashboardView, using the same stored database and Redis state as the admin dashboard. `ready` does not guarantee model access, sufficient quota, or a free concurrency slot; `lastSyncAt` indicates the latest account sync, not that every account was refreshed then.
+
+See [external-api.md](external-api.md) for request examples, limits and status semantics.
 
 ## Shared backend imports root provides
 server/lib/config.ts: getConfig() -> {databaseUrl,redisUrl,encryptionKey,adminUsername,adminPassword,appUrl,kernelUrl}
@@ -31,7 +43,7 @@ server/lib/settings.ts (data agent): getSettings():Promise<SystemSettings>, save
 server/lib/queues.ts (data agent): enqueueAccountRefresh(accountId,{reason?,force?}?), getImportQueue()
 server/lib/events.ts (root): publishUpdate({type,accountId?})
 server/lib/logs.ts (root): insertRequestLog(input) and pagination via SQL
-server/lib/auth.ts (root): requireAdmin(event), authenticateGatewayKey(secret):Promise<{id,name}|null>
+server/lib/auth.ts (root): requireAdmin(event), authenticateGatewayKey(secret):Promise<{id,name}|null>, requireServiceKey(event), authenticateServiceKey(secret):Promise<{id,name}|null>
 
 ## DB schema contract (data agent owns SQL migration)
 managed_accounts: id UUID, upstream_user_id TEXT UNIQUE, credential_fingerprint TEXT UNIQUE,
@@ -43,6 +55,7 @@ account_models: account_id UUID FK, model_id TEXT, status TEXT(allowed/denied/co
 reason TEXT NULL, cooldown_until TIMESTAMPTZ NULL,last_checked_at TIMESTAMPTZ, PK(account_id,model_id).
 model_catalog: model_id TEXT PK,name TEXT,metadata JSONB,updated_at TIMESTAMPTZ.
 gateway_keys: id UUID,name TEXT,prefix TEXT,secret_hash TEXT UNIQUE,enabled BOOL,created_at,last_used_at NULL.
+service_keys: same fields as gateway_keys, separate table for external service credentials (migration 002_service_keys.sql).
 app_settings: id INT PK=1,value JSONB,updated_at.
 request_logs: id UUID,key_id UUID NULL,account_id UUID NULL,model TEXT,protocol TEXT,
 session_id TEXT NULL,status TEXT,http_status INT NULL,duration_ms INT,streaming BOOL,

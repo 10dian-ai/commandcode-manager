@@ -72,6 +72,16 @@ npm run dev
 5. 客户端 base URL 为你的域名加 /v1。网关支持 /v1/chat/completions、/v1/messages、/v1/responses 和 /v1/models。
 6. 根据需要调整全局并发、默认账号并发、刷新周期、日志保留期限和亲和时长。
 
+## 外调服务 API
+
+在后台 **API 密钥 → 外调服务 Key** 创建独立的 `ccm_service_` 密钥，即可通过 API 添加账号、查询导入任务和读取池状态。外调 Key 与客户端使用的模型 API Key 分开验证。
+
+- `POST /api/external/accounts`：提交单个或批量账号，返回导入任务 ID。
+- `GET /api/external/jobs/:id`：查询导入进度和最终结果。
+- `GET /api/external/pool`：读取与后台概览相同的账号、请求及服务状态。
+
+请求使用 `Authorization: Bearer <外调服务 Key>` 或 `x-api-key: <外调服务 Key>`。完整 curl 示例、响应字段及统计语义见 [外调服务 API 文档](docs/external-api.md)。
+
 ## 调度与数据语义
 
 - 新会话按实际占用分配账号，同一会话优先复用原账号，满载时可为后续请求迁移；正在执行的请求不会中途换号。
